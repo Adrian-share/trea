@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Racing Game</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(to bottom, #87CEEB, #98FB98);
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .game-container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        canvas {
+            border: 3px solid #333;
+            border-radius: 10px;
+            background: #222;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .controls {
+            margin-top: 15px;
+            color: #333;
+            font-size: 14px;
+        }
+        
+        .score {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            display: none;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="score">Score: <span id="score">0</span></div>
+        <canvas id="gameCanvas" width="400" height="600"></canvas>
+        <div class="controls">
+            <p>Use ← → arrow keys to move, ↑ to jump</p>
+            <p>Avoid the obstacles and collect coins!</p>
+        </div>
+    </div>
+    
+    <div class="game-over" id="gameOver">
+        <h2>Game Over!</h2>
+        <p>Final Score: <span id="finalScore">0</span></p>
+        <button onclick="restartGame()">Play Again</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const gameOverElement = document.getElementById('gameOver');
+        const finalScoreElement = document.getElementById('finalScore');
+
+        // Game variables
+        let gameRunning = true;
+        let score = 0;
+        let gameSpeed = 2;
+        
+        // Player car
+        const player = {
+            x: canvas.width / 2 - 15,
+            y: canvas.height - 80,
+            width: 30,
+            height: 50,
+            velocityY: 0,
+            onGround: true,
+            color: '#FF4444'
+        };
+        
+        // Game physics - Lower gravity for easier gameplay
+        const gravity = 0.3; // Reduced from typical 0.5-0.8
+        const jumpPower = -8; // Reduced from typical -12 to -15
+        
+        // Game objects
+        let obstacles = [];
+        let coins = [];
+        let particles = [];
+        
+        // Road lines
+        let roadLines = [];
+        
+        // Initialize road lines
+        for (let i = 0; i < 10; i++) {
+            roadLines.push({
+                x: canvas.width / 2 - 2,
+                y: i * 80,
+                width: 4,
+                height: 40
+            });
+        }
+        
+        // Input handling
+        const keys = {};
+        
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+        
+        // Create obstacle
+        function createObstacle() {
+            const lanes = [100, 200, 300];
+            const lane = lanes[Math.floor(Math.random() * lanes.length)];
+            const colors = ['#FF0000', '#FF4500', '#DC143C', '#B22222'];
+            obstacles.push({
+                x: lane - 15,
+                y: -50,
+                width: 30,
+                height: 40,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                pulse: 0
+            });
+        }
+        
+        // Create coin
+        function createCoin() {
+            const lanes = [100, 200, 300];
+            const lane = lanes[Math.floor(Math.random() * lanes.length)];
+            coins.push({
+                x: lane - 10,
+                y: -30,
+                width: 20,
+                height: 20,
+                color: '#FFD700',
+                rotation: 0
+            });
+        }
+        
+        // Create particle effect
+        function createParticles(x, y, color) {
+            for (let i = 0; i < 8; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    velocityX: (Math.random() - 0.5) * 6,
+                    velocityY: (Math.random() - 0.5) * 6,
+                    life: 30,
+                    color: color
+                });
+            }
+        }
+        
+        // Collision detection
+        function checkCollision(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.width &&
+                   rect1.x + rect1.width > rect2.x &&
+                   rect1.y < rect2.y + rect2.height &&
+                   rect1.y + rect1.height > rect2.y;
+        }
+        
+        // Update game logic
+        function update() {
+            if (!gameRunning) return;
+            
+            // Player movement
+            if (keys['ArrowLeft'] && player.x > 50) {
+                player.x -= 4;
+            }
+            if (keys['ArrowRight'] && player.x < canvas.width - 80) {
+                player.x += 4;
+            }
+            if (keys['ArrowUp'] && player.onGround) {
+                player.velocityY = jumpPower;
+                player.onGround = false;
+            }
+            
+            // Apply gravity (reduced for easier gameplay)
+            player.velocityY += gravity;
+            player.y += player.velocityY;
+            
+            // Ground collision
+            if (player.y >= canvas.height - 80) {
+                player.y = canvas.height - 80;
+                player.velocityY = 0;
+                player.onGround = true;
+            }
+            
+            // Move road lines
+            roadLines.forEach(line => {
+                line.y += gameSpeed;
+                if (line.y > canvas.height) {
+                    line.y = -40;
+                }
+            });
+            
+            // Move and update obstacles
+            obstacles.forEach((obstacle, index) => {
+                obstacle.y += gameSpeed;
+                obstacle.pulse += 0.1;
+                
+                // Remove obstacles that are off screen
+                if (obstacle.y > canvas.height) {
+                    obstacles.splice(index, 1);
+                    score += 10;
+                }
+                
+                // Check collision with player
+                if (checkCollision(player, obstacle)) {
+                    gameOver();
+                }
+            });
+            
+            // Move and update coins
+            coins.forEach((coin, index) => {
+                coin.y += gameSpeed;
+                coin.rotation += 0.1;
+                
+                // Remove coins that are off screen
+                if (coin.y > canvas.height) {
+                    coins.splice(index, 1);
+                }
+                
+                // Check collision with player
+                if (checkCollision(player, coin)) {
+                    coins.splice(index, 1);
+                    score += 50;
+                    createParticles(coin.x + 10, coin.y + 10, '#FFD700');
+                }
+            });
+            
+            // Update particles
+            particles.forEach((particle, index) => {
+                particle.x += particle.velocityX;
+                particle.y += particle.velocityY;
+                particle.life--;
+                
+                if (particle.life <= 0) {
+                    particles.splice(index, 1);
+                }
+            });
+            
+            // Spawn obstacles and coins
+            if (Math.random() < 0.02) {
+                createObstacle();
+            }
+            if (Math.random() < 0.015) {
+                createCoin();
+            }
+            
+            // Increase game speed gradually
+            gameSpeed += 0.001;
+            
+            // Update score display
+            scoreElement.textContent = score;
+        }
+        
+        // Render game
+        function render() {
+            // Clear canvas
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw road
+            ctx.fillStyle = '#555';
+            ctx.fillRect(50, 0, 300, canvas.height);
+            
+            // Draw road lines
+            ctx.fillStyle = '#FFF';
+            roadLines.forEach(line => {
+                ctx.fillRect(line.x, line.y, line.width, line.height);
+            });
+            
+            // Draw side barriers
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(0, 0, 50, canvas.height);
+            ctx.fillRect(350, 0, 50, canvas.height);
+            
+            // Draw obstacles
+            obstacles.forEach(obstacle => {
+                // Add pulsing glow effect
+                const glowIntensity = 0.3 + 0.2 * Math.sin(obstacle.pulse);
+                ctx.shadowColor = obstacle.color;
+                ctx.shadowBlur = 15 * glowIntensity;
+                
+                // Main obstacle body with gradient
+                const gradient = ctx.createLinearGradient(obstacle.x, obstacle.y, obstacle.x, obstacle.y + obstacle.height);
+                gradient.addColorStop(0, obstacle.color);
+                gradient.addColorStop(1, '#000');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+                
+                // Reset shadow
+                ctx.shadowBlur = 0;
+                
+                // Add bright warning stripes
+                ctx.fillStyle = '#FFFF00';
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 3, 26, 3);
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 9, 26, 3);
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 15, 26, 3);
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 21, 26, 3);
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 27, 26, 3);
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 33, 26, 3);
+                
+                // Add black stripes for contrast
+                ctx.fillStyle = '#000';
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 6, 26, 3);
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 12, 26, 3);
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 18, 26, 3);
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 24, 26, 3);
+                ctx.fillRect(obstacle.x + 2, obstacle.y + 30, 26, 3);
+                
+                // Add warning symbol
+                ctx.fillStyle = '#FFFF00';
+                ctx.font = 'bold 16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('!', obstacle.x + 15, obstacle.y + 25);
+                
+                // Add border for better definition
+                ctx.strokeStyle = '#FFF';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            });
+            
+            // Draw coins
+            coins.forEach(coin => {
+                ctx.save();
+                ctx.translate(coin.x + 10, coin.y + 10);
+                ctx.rotate(coin.rotation);
+                ctx.fillStyle = coin.color;
+                ctx.fillRect(-10, -10, 20, 20);
+                ctx.fillStyle = '#FFA500';
+                ctx.fillRect(-6, -6, 12, 12);
+                ctx.restore();
+            });
+            
+            // Draw particles
+            particles.forEach(particle => {
+                ctx.fillStyle = particle.color;
+                ctx.globalAlpha = particle.life / 30;
+                ctx.fillRect(particle.x, particle.y, 3, 3);
+                ctx.globalAlpha = 1;
+            });
+            
+            // Draw player car
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+            
+            // Add car details
+            ctx.fillStyle = '#FFF';
+            ctx.fillRect(player.x + 5, player.y + 5, 20, 8);
+            ctx.fillRect(player.x + 5, player.y + 37, 20, 8);
+            
+            // Car wheels
+            ctx.fillStyle = '#000';
+            ctx.fillRect(player.x - 2, player.y + 10, 6, 8);
+            ctx.fillRect(player.x + 26, player.y + 10, 6, 8);
+            ctx.fillRect(player.x - 2, player.y + 32, 6, 8);
+            ctx.fillRect(player.x + 26, player.y + 32, 6, 8);
+        }
+        
+        // Game over
+        function gameOver() {
+            gameRunning = false;
+            finalScoreElement.textContent = score;
+            gameOverElement.style.display = 'block';
+        }
+        
+        // Restart game
+        function restartGame() {
+            gameRunning = true;
+            score = 0;
+            gameSpeed = 2;
+            player.x = canvas.width / 2 - 15;
+            player.y = canvas.height - 80;
+            player.velocityY = 0;
+            player.onGround = true;
+            obstacles = [];
+            coins = [];
+            particles = [];
+            gameOverElement.style.display = 'none';
+        }
+        
+        // Game loop
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Start the game
+        gameLoop();
+    </script>
+</body>
+</html>
